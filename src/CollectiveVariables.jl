@@ -33,7 +33,7 @@ struct ValGradCache{V, G, E} <: CVCache
     grad::G
     extgrad::E
 
-    function ValGrad(cv, rs::AbstractArray{T}) where {T}
+    function ValGradCache(cv, rs::AbstractArray{T}) where {T}
         val, V = withtype(value_storage(rs))
         grad, G = withtype(grad_storage(cv, rs))
         extgrad, E = withtype(reinterpret(reshape, SVector{3, T}, zero(rs)))
@@ -47,7 +47,7 @@ abstract type GroupCV      <: CollectiveVariable end
 abstract type FourPointCV  <: CollectiveVariable end
 abstract type ThreePointCV <: CollectiveVariable end
 
-struct DynamicCV{CV, T, V <: CVCache} <: CollectiveVariable
+struct DynamicCV{CV, T, C <: CVCache} <: CollectiveVariable
     ξ::CV
     indices::T
     cache::C
@@ -93,6 +93,10 @@ defined by the two central points).
 end
 
 # Gradient evaluation
+get_value(cache::CVCache) = cv.val
+get_gradient(cache::CVCache) = cv.grad
+get_extended_gradient(cache::CVCache) = cv.extgrad
+
 value_storage(rs::AbstractArray{T}) where {T} = Ref(zero(T))
 value_storage(rs::AnyCuArray{T}) where {T} = CUDA.fill(zero(T))
 
@@ -117,9 +121,10 @@ function (cv::DynamicCV)(rs::AbstractMatrix{T}) where {T <: Real}
     return ξ, ∂ξ
 end
 
-function evaluate!(f::F, vg::ValGrad, ps, I::AbstractVector, tags) where {F}
-    ξ = vg.val
-    ∂p = fill!(vg.cache, zero(eltype(vg.cache)))
+function evaluate!(f::F, cache::ValGradCache, ps, I::AbstractVector, tags) where {F}
+    ξ = get_value(cache)
+    ∂p = get_extended_gradient(cache)
+    fill!(∂p, zero(eltype(∂p)))
 
     inds = SVector(view(I, tags) .+ 1)
     ξ[], ∂ξ = f(view(ps, inds))
@@ -128,11 +133,12 @@ function evaluate!(f::F, vg::ValGrad, ps, I::AbstractVector, tags) where {F}
     return ξ[], vec(reinterpret(reshape, eltype(ξ), ∂p))
 end
 
-@inline function evaluate!(f::F, vg::ValGrad, ps, I::AnyCuVector, tags) where {F}
-    ξ = vg.val
-    ∂ξ = vg.grad
-    ∂p = fill!(vg.cache, zero(eltype(vg.cache)))
+@inline function evaluate!(f::F, cache::ValGradCache, ps, I::AnyCuVector, tags) where {F}
+    ξ = get_value(cache)
+    ∂ξ = get_gradient(cache)
+    ∂p = get_extended_gradient(cache)
     ∂x = reinterpret(reshape, SVector{4, eltype(ps)}, ∂ξ)
+    fill!(∂p, zero(eltype(∂p)))
 
     function kernel(ξ, ∂ξ, ∂x, ∂p, ps, I)
         i = threadIdx().x
@@ -152,7 +158,7 @@ end
 
     @cuda threads=(length(∂ξ) + 1) kernel(ξ, ∂ξ, ∂x, ∂p, ps, I)
 
-    return CUDA.@allowscalar ξ[], vec(reinterpret(reshape, eltype(ξ), ∂p))
+    return CUDA.@allowscalar(ξ[]), vec(reinterpret(reshape, eltype(ξ), ∂p))
 end
 
 function value_and_gradient(cv::CollectiveVariable, rs::AbstractMatrix{T}) where {T <: Real}
