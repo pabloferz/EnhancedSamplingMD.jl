@@ -1,12 +1,8 @@
-module SSAGES
-
-
-# Signal to Revise.jl that this file should be tracked as a package
-__revise_mode__ = :eval
+module EnhancedSamplingMD.jl
 
 
 # Dependecies
-include("Backends.jl")
+include("backends/Backends.jl")
 include("CollectiveVariables.jl")
 
 using CUDA
@@ -31,4 +27,4 @@ include("sampling.jl")
 include("utils.jl")
 
 
-end  # module SSAGES
+end  # module EnhancedSamplingMD.jl

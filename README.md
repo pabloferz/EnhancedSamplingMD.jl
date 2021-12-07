@@ -1,1 +1,1 @@
-# SSAGES
+# EnhancedSamplingMD.jl
