@@ -1,19 +1,25 @@
-module EnhancedSamplingMD.jl
+module EnhancedSamplingMD
 
 
 # Dependecies
-include("backends/Backends.jl")
-include("CollectiveVariables.jl")
-
 using CUDA
 using LinearAlgebra
 using Reexport
 using StaticArrays
+
+
+# Implementation
+include("backends/Backends.jl")
+include("sampling/SamplingMethods.jl")
+include("CollectiveVariables.jl")
+include("grids.jl")
+include("utils.jl")
+
 @reexport using .CollectiveVariables
-#@reexport using .Backends
+@reexport using .SamplingMethods
 
 
-# Imports
+# Internal imports
 import .Backends: bind, set_backend, supported_backends
 
 
@@ -21,10 +27,4 @@ import .Backends: bind, set_backend, supported_backends
 export bind, set_backend, supported_backends, Grid
 
 
-# Implementation
-include("grids.jl")
-include("sampling.jl")
-include("utils.jl")
-
-
-end  # module EnhancedSamplingMD.jl
+end  # module EnhancedSamplingMD
