@@ -1,4 +1,4 @@
-module HOOMDHook
+module HOOMD
 
 
 # Signal Revise.jl that this module should be tracked as a package
@@ -11,7 +11,7 @@ using DLPack
 using PyCall
 using StaticArrays
 
-dl = pyimport("hoomd.dlext")
+DLExt = pyimport("hoomd.dlext")
 
 
 # Types
@@ -21,12 +21,12 @@ struct ContextWrapper
     synchronize::PyObject
 
     function ContextWrapper(context::PyObject)
-        sysview = @pycall dl.SystemView(context."system_definition")::PyObject
+        sysview = @pycall DLExt.SystemView(context."system_definition")::PyObject
         return new(context, sysview, sysview.synchronize)
     end
 end
 
-@pydef mutable struct Sampler <: dl.HalfStepHook
+@pydef mutable struct Sampler <: DLExt.HalfStepHook
     function __init__(self, sample_and_bias)
         py"super"(Sampler, self).__init__()
         self.sample_and_bias = sample_and_bias
@@ -42,8 +42,8 @@ end
 # Methods
 is_on_gpu(context) = pycall(context.on_gpu, Bool)
 
-location(::Type{Array}) = dl.AccessLocation."OnHost"
-location(::Type{CuArray}) = dl.AccessLocation."OnDevice"
+location(::Type{Array}) = DLExt.AccessLocation."OnHost"
+location(::Type{CuArray}) = DLExt.AccessLocation."OnDevice"
 
 vector(::Type{A}, ::Type{T}, v) where {A, T} = unsafe_wrap(A, DLVector{T}(v))
 
@@ -54,7 +54,7 @@ function matrix(::Type{A}, ::Type{T}, M) where {A, T}
 end
 
 function take_snapshot(wrapped_context; location = default_location())
-    if is_on_gpu(wrapped_context.context) && location == dl.AccessLocation."OnDevice"
+    if is_on_gpu(wrapped_context.context) && location == DLExt.AccessLocation."OnDevice"
         return take_snapshot(CuArray, wrapped_context)
     else
         return take_snapshot(Array, wrapped_context)
@@ -64,14 +64,14 @@ end
 function take_snapshot(A::Union{Type{Array}, Type{CuArray}}, wrapped_context)
     context = wrapped_context.context
     sysview = wrapped_context.sysview
-    mode = dl.AccessMode."ReadWrite"
+    mode = DLExt.AccessMode."ReadWrite"
     loc = location(A)
     T = Float64
 
-    positions = matrix(A, T, @pycall dl.positions_types(sysview, loc, mode)::PyObject)
-    momenta = matrix(A, T, @pycall dl.velocities_masses(sysview, loc, mode)::PyObject)
-    forces = matrix(A, T, @pycall dl.net_forces(sysview, loc, mode)::PyObject)
-    ids = vector(A, UInt32, @pycall dl.rtags(sysview, loc, mode)::PyObject)
+    positions = matrix(A, T, @pycall DLExt.positions_types(sysview, loc, mode)::PyObject)
+    momenta = matrix(A, T, @pycall DLExt.velocities_masses(sysview, loc, mode)::PyObject)
+    forces = matrix(A, T, @pycall DLExt.net_forces(sysview, loc, mode)::PyObject)
+    ids = vector(A, UInt32, @pycall DLExt.rtags(sysview, loc, mode)::PyObject)
 
     pdata = pycall(sysview."particle_data", PyObject)
     box = pycall(pdata."getGlobalBox", PyObject)
@@ -103,7 +103,7 @@ function take_snapshot(A::Union{Type{Array}, Type{CuArray}}, wrapped_context)
     )
 end
 
-function bind(context, sampling_method; kwargs...)
+function bind(context, sampling_method, callback; kwargs...)
     wrapped_context = ContextWrapper(context)
     snapshot = take_snapshot(wrapped_context)
     update = sampling_method(snapshot)
@@ -117,12 +117,12 @@ end
 
 # Module Initialization
 function __init__()
-    if hasproperty(dl.AccessLocation, :OnDevice)
-        @eval default_location() = dl.AccessLocation."OnDevice"
+    if hasproperty(DLExt.AccessLocation, :OnDevice)
+        @eval default_location() = DLExt.AccessLocation."OnDevice"
     else
-        @eval default_location() = dl.AccessLocation."OnHost"
+        @eval default_location() = DLExt.AccessLocation."OnHost"
     end
 end
 
 
-end
+end  # module HOOMD

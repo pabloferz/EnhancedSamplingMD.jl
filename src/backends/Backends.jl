@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2020-2021: Pablo Zubieta
+# See LICENSE.md at https://github.com/pabloferz/EnhancedSamplingMD.jl
+
 module Backends
 
 
@@ -9,66 +13,49 @@ __revise_mode__ = :eval
 
 
 # Exports
-export bind, current_backend, set_backend, supported_backends, wrap
+export ContextWrapper, supported_backends
 
 
-# Constants
-const CURRENT_BACKEND = Ref{Tuple{Symbol, Module}}()
+# Types
+"""
+Manages access to the backend-dependent simulation context.
+"""
+struct ContextWrapper
+    backend::Module
+    context::PyObject
+    sampler::PyObject
+
+    function ContextWrapper(context, sampling_method, callback; kwargs...)
+        backend = load_backend(context)
+        sampler = backend.bind(context, sampling_method, callback; kwargs...)
+        return new(backend, context, sampler)
+    end
+end
 
 
 # Methods
-supported_backends() = (:HOOMD,)
+supported_backends() = (:HOOMD, :OpenMM)
 
-"""    set_backend(backend::String)
 
-To see a list of possible backends run `supported_backends()`
+"""    load_backend(context)
+
+Loads the appropriate backend depending on the simulation context.
 """
-set_backend(backend::AbstractString) = set_backend(Symbol(backend))
-
-function set_backend(backend::Symbol)
-    if backend ∈ supported_backends()
-        if isassigned(CURRENT_BACKEND)
-            current, m = CURRENT_BACKEND[]
-            if backend === current
-                return m
-            end
-        end
-        m = initialize(backend)
-        CURRENT_BACKEND[] = (backend, m)
-        return m
+function load_backend(context)
+    module_name = py"type"(context).__module__
+    backend_name = if startswith(module_name, "hoomd")
+        :HOOMD
+    elseif startswith(module_name, r"(simtk\.|)openmm")
+        :OpenMM
+    else
+        :Invalid
     end
-    throw(ArgumentError("Invalid backend"))
-end
-
-function initialize(backend::Symbol)
-    path = joinpath(@__DIR__, "backends", string(backend, "Hook.jl"))
-    m = include(path)::Module
-    return m
-end
-
-function current_backend()
-    if isassigned(CURRENT_BACKEND)
-        return last(CURRENT_BACKEND[])
+    if backend_name === :Invalid
+        backends = join(supported_backends(), ", ")
+        throw(ArgumentError("Invalid backend, supported options are $backends"))
     end
-    @warn "No backend has been set"
-end
-
-"""    bind(context, sampling_method; kwargs...)
-
-Couples the sampling method to the simulation context.
-"""
-function bind(context, sampling_method; kwargs...)
-    backend = if startswith(py"type"(context).__module__, "hoomd")
-        set_backend(:HOOMD)
-    end
-
-    return Base.invokelatest(backend.bind, context, sampling_method; kwargs...)
-end
-
-function check_backend_initialization()
-    if !isassigned(CURRENT_BACKEND)
-        throw(ErrorException("No backend has been set"))
-    end
+    path = joinpath(@__DIR__, string(backend, ".jl"))
+    return include(path)::Module
 end
 
 
